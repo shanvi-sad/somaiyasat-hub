@@ -1,0 +1,5 @@
+streamlit>=1.50
+psycopg2-binary
+pandas
+scikit-learn
+plotly
