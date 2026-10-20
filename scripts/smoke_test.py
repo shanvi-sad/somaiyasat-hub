@@ -19,7 +19,7 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# Ensure project root is in sys.path
+# Ensure project root in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.db import get_conn
 
@@ -61,6 +61,9 @@ def run_check_2(conn):
         cur.execute("SELECT phase_id FROM mission_phase WHERE name = 'NOMINAL';")
         nominal_id = cur.fetchone()["phase_id"]
 
+        # Reset spacecraft to LAUNCH for test scenario
+        cur.execute("UPDATE spacecraft SET current_phase_id = %s WHERE spacecraft_id = %s;", (launch_id, sat_id))
+
         rejected = False
         cur.execute("SAVEPOINT check_2_attempt;")
         try:
@@ -81,6 +84,13 @@ def run_check_3(conn):
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("SELECT spacecraft_id FROM spacecraft WHERE name = 'SomaiyaSat';")
         sat_id = cur.fetchone()["spacecraft_id"]
+        cur.execute("SELECT phase_id FROM mission_phase WHERE name = 'LAUNCH';")
+        launch_id = cur.fetchone()["phase_id"]
+
+        # Set satellite back to LAUNCH and deployment to PENDING within transaction
+        cur.execute("UPDATE spacecraft SET current_phase_id = %s WHERE spacecraft_id = %s;", (launch_id, sat_id))
+        cur.execute("UPDATE deployment_event SET status = 'PENDING', signal_at = NULL WHERE spacecraft_id = %s;", (sat_id,))
+        cur.execute("DELETE FROM phase_transition WHERE spacecraft_id = %s;", (sat_id,))
 
         # Confirm deployment event
         cur.execute("""
@@ -121,6 +131,13 @@ def run_check_4(conn):
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("SELECT spacecraft_id FROM spacecraft WHERE name = 'SomaiyaSat';")
         sat_id = cur.fetchone()["spacecraft_id"]
+
+        # Clean isolation: reset to LAUNCH & clear prior transmissions for clean test
+        cur.execute("SELECT phase_id FROM mission_phase WHERE name = 'LAUNCH';")
+        launch_id = cur.fetchone()["phase_id"]
+        cur.execute("UPDATE spacecraft SET current_phase_id = %s WHERE spacecraft_id = %s;", (launch_id, sat_id))
+        cur.execute("UPDATE deployment_event SET status = 'PENDING', signal_at = NULL WHERE spacecraft_id = %s;", (sat_id,))
+        cur.execute("DELETE FROM transmission WHERE decision_id IN (SELECT decision_id FROM router_decision rd JOIN data_item di ON rd.item_id = di.item_id WHERE di.spacecraft_id = %s);", (sat_id,))
 
         # Step A: Confirm deployment to reach COMMISSIONING
         cur.execute("""
@@ -207,6 +224,11 @@ def run_check_5(conn):
         sensor_id = cur.fetchone()["sensor_id"]
         cur.execute("SELECT min_val FROM threshold_rule WHERE sensor_id = %s AND severity = 'CRITICAL';", (sensor_id,))
         crit_min = cur.fetchone()["min_val"]
+
+        # Ensure satellite is not already in SAFE_MODE
+        cur.execute("SELECT phase_id FROM mission_phase WHERE name = 'NOMINAL';")
+        nom_id = cur.fetchone()["phase_id"]
+        cur.execute("UPDATE spacecraft SET current_phase_id = %s WHERE spacecraft_id = %s;", (nom_id, sat_id))
 
         # Insert critical low reading in ORBIT (e.g., 3.10 V < 3.30 V)
         cur.execute("""
