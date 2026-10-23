@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Streamlit secrets (NEVER commit real credentials)
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store

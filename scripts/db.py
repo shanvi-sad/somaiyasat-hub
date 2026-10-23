@@ -2,12 +2,9 @@
 SomaiyaSat Telemetry Hub - scripts/db.py
 Database connection and transactional query helpers using psycopg2.
 
-Configuration is read from environment variables per SPEC.md:
-  - DB_HOST (default: localhost)
-  - DB_PORT (default: 5432)
-  - DB_USER (default: current OS user)
-  - DB_PASS (default: empty)
-  - DB_NAME (default: somaiyasat)
+Configuration priority:
+  1. Streamlit secrets  (st.secrets["postgres"]  — used on Streamlit Cloud)
+  2. Environment variables per SPEC.md (DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME)
 """
 
 import os
@@ -16,9 +13,33 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 
+def _try_streamlit_secrets():
+    """Attempt to read DB config from Streamlit secrets; return dict or None."""
+    try:
+        import streamlit as st
+        sec = st.secrets["postgres"]
+        config = {
+            "host":   sec["host"],
+            "port":   int(sec.get("port", 5432)),
+            "user":   sec["user"],
+            "password": sec["password"],
+            "dbname": sec.get("dbname", "somaiyasat"),
+        }
+        if sec.get("sslmode"):
+            config["sslmode"] = sec["sslmode"]
+        return config
+    except Exception:
+        return None
+
+
 def get_db_config():
-    """Retrieve database connection parameters from environment variables."""
-    # Current OS user fallback (via USER env var or getpass.getuser)
+    """Retrieve database connection parameters (Streamlit secrets → env vars)."""
+    # 1. Try Streamlit secrets first (Streamlit Cloud deployment)
+    cfg = _try_streamlit_secrets()
+    if cfg:
+        return cfg
+
+    # 2. Fallback to environment variables (local development)
     current_user = os.environ.get("USER") or getpass.getuser()
     
     config = {
